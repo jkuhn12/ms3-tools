@@ -72,16 +72,36 @@ def build_column_map(headers: list[str]) -> ColumnMap:
         tps=find_column(["tps", "TPS", "throttle"], headers),
         mat=find_column(["mat", "MAT", "iat", "IAT"], headers),
         clt=find_column(["clt", "CLT", "coolant"], headers),
-        advance=find_column(["advance", "spark", "timing"], headers),
+        advance=find_column(
+            ["advance", "spark", "timing", "SPK: Spark Advance"], headers
+        ),
         knock=find_column(
-            ["knkRetard", "knockRetard", "knk_retard", "knock retard"], headers
+            [
+                "knkRetard",
+                "knockRetard",
+                "knk_retard",
+                "knock retard",
+                "SPK: Knock retard",
+            ],
+            headers,
         ),
-        afr=find_column(["afr1", "AFR1", "afr", "AFR", "afr1_old"], headers),
-        afrtgt=find_column(["afrtgt1", "afrtarget", "afr_tgt", "afrTarget"], headers),
+        afr=find_column(
+            ["afr1", "AFR1", "afr", "AFR", "afr1_old"], headers
+        ),
+        afrtgt=find_column(
+            ["afrtgt1", "afrtarget", "afr_tgt", "afrTarget", "EgoV 1 Target"], headers
+        ),
         ego=find_column(
-            ["egoCorrection1", "egoCorrection", "ego_cor", "egoCorr"], headers
+            [
+                "egoCorrection1",
+                "egoCorrection",
+                "ego_cor",
+                "egoCorr",
+                "EGO cor1",
+            ],
+            headers,
         ),
-        pw=find_column(["pulseWidth1", "pw1", "pulse_width1", "pw_1"], headers),
+        pw=find_column(["pulseWidth1", "pw1", "pulse_width1", "pw_1", "PW"], headers),
         map_=find_column(["map", "MAP", "map_kpa"], headers),
     )
 
@@ -92,8 +112,25 @@ def parse_msl(filepath: Path) -> tuple[list[str], list[list[str]]]:
     headers: list[str] = []
 
     with filepath.open("r", newline="", encoding="utf-8", errors="ignore") as f:
+        # Detect delimiter: TunerStudio .msl files are tab-delimited by default
+        sample = ""
+        for _ in range(20):
+            try:
+                sample += next(f)
+            except StopIteration:
+                break
+        f.seek(0)
+
+        delimiter = "\t"
+        if "\t" not in sample:
+            try:
+                dialect = csv.Sniffer().sniff(sample)
+                delimiter = dialect.delimiter
+            except csv.Error:
+                delimiter = ","
+
         # Heuristic: find the CSV header row
-        reader = csv.reader(f)
+        reader = csv.reader(f, delimiter=delimiter)
         for row in reader:
             if not row:
                 continue
@@ -105,7 +142,7 @@ def parse_msl(filepath: Path) -> tuple[list[str], list[list[str]]]:
         if not headers:
             # Fallback: try to infer from first substantial row
             f.seek(0)
-            reader = csv.reader(f)
+            reader = csv.reader(f, delimiter=delimiter)
             for row in reader:
                 if row and len(row) > 5:
                     headers = [h.strip() for h in row]
@@ -270,7 +307,85 @@ def analyze_segment(
     return result
 
 
-def print_report(filepath: Path, headers: list[str], rows: list[list[str]]) -> None:
+def _fmt(v: float | None, width: int = 8, decimals: int = 1) -> str:
+    if v is None or math.isnan(v):
+        return "-".rjust(width)
+    if decimals == 0:
+        return f"{int(v)}".rjust(width)
+    return f"{v:.{decimals}f}".rjust(width)
+
+
+def print_pull_detail(
+    rows: list[list[str]],
+    headers: list[str],
+    cols: ColumnMap,
+    start: int,
+    end: int,
+    pull_num: int,
+) -> None:
+    """Print a row-by-row table for a single WOT pull."""
+    print(f"\n{'=' * 60}")
+    print(f"  Detailed Breakdown — Pull #{pull_num}")
+    print(f"{'=' * 60}")
+
+    indices: dict[str, int | None] = {}
+    for name, col in (
+        ("Time", cols.time),
+        ("RPM", cols.rpm),
+        ("TPS", cols.tps),
+        ("MAP", cols.map_),
+        ("Advance", cols.advance),
+        ("Knock", cols.knock),
+        ("MAT", cols.mat),
+        ("CLT", cols.clt),
+        ("AFR", cols.afr),
+        ("AFR Tgt", cols.afrtgt),
+        ("EGO Cor", cols.ego),
+        ("PW", cols.pw),
+    ):
+        indices[name] = headers.index(col) if col else None
+
+    # Header row
+    header_line = " | ".join(
+        f"{name:>9}" if name != "Time" else f"{'Time':>10}"
+        for name in indices
+    )
+    print(header_line)
+    print("-" * len(header_line))
+
+    for i in range(start, end + 1):
+        row = rows[i]
+        parts: list[str] = []
+        for name, idx in indices.items():
+            if idx is None:
+                parts.append(_fmt(None, 9))
+                continue
+            try:
+                val = float(row[idx])
+            except (ValueError, IndexError):
+                parts.append(_fmt(None, 9))
+                continue
+            if name == "Time":
+                parts.append(_fmt(val, 10, 3))
+            elif name in ("RPM"):
+                parts.append(_fmt(val, 9, 0))
+            elif name in ("TPS", "MAP", "Advance", "Knock", "MAT", "CLT"):
+                parts.append(_fmt(val, 9, 1))
+            elif name in ("AFR", "AFR Tgt"):
+                parts.append(_fmt(val, 9, 2))
+            else:
+                parts.append(_fmt(val, 9, 2))
+        print(" | ".join(parts))
+
+    print()
+
+
+def print_report(
+    filepath: Path,
+    headers: list[str],
+    rows: list[list[str]],
+    detail_pull: int | None = None,
+) -> None:
     """Print a concise analysis report."""
     cols = build_column_map(headers)
 
@@ -323,6 +438,8 @@ def print_report(filepath: Path, headers: list[str], rows: list[list[str]]) -> N
         )
         return
 
+    detail_start_end: tuple[int, int] | None = None
+
     for i, (start, end) in enumerate(wot_segments, 1):
         seg = analyze_segment(rows, headers, start, end, cols)
         if seg is None:
@@ -332,6 +449,9 @@ def print_report(filepath: Path, headers: list[str], rows: list[list[str]]) -> N
             f"  Pull #{i}:  {seg.duration:.2f}s  |  "
             f"RPM: {seg.rpm_start:.0f} → {seg.rpm_end:.0f}"
         )
+
+        if detail_pull == i:
+            detail_start_end = (start, end)
 
         if seg.adv_avg is not None:
             print(
@@ -422,22 +542,48 @@ def print_report(filepath: Path, headers: list[str], rows: list[list[str]]) -> N
 
     print()
 
+    if detail_pull is not None and detail_start_end is not None:
+        start, end = detail_start_end
+        print_pull_detail(rows, headers, cols, start, end, detail_pull)
+    elif detail_pull is not None:
+        print(f"⚠️  Pull #{detail_pull} not found. Only {len(wot_segments)} segment(s) detected.\n")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyze MS3 TunerStudio datalog (.msl)"
     )
     parser.add_argument("msl_file", type=Path, help="Path to the .msl datalog file")
+    parser.add_argument(
+        "--pull",
+        type=int,
+        metavar="N",
+        help="Print a detailed row-by-row breakdown for pull number N",
+    )
     args = parser.parse_args()
 
     if not args.msl_file.exists():
         raise SystemExit(f"Error: file not found: {args.msl_file}")
 
+    # Detect unsupported binary .mlg format early
+    with args.msl_file.open("rb") as f:
+        header = f.read(5)
+        if header == b"MLVLG":
+            raise SystemExit(
+                "Error: this is a TunerStudio .mlg binary datalog.\n"
+                "       This script only supports .msl (text/CSV) datalogs.\n\n"
+                "       To fix:\n"
+                "       1. In TunerStudio, go to Tools → Data Logging → Settings\n"
+                "          and set the log format to .msl for future logs.\n"
+                "       2. Or open this .mlg in TunerStudio and use\n"
+                "          File → Export Data Log to save it as .msl or .csv."
+            )
+
     headers, rows = parse_msl(args.msl_file)
     if not headers or not rows:
         raise SystemExit("Error: could not parse datalog. Check file format.")
 
-    print_report(args.msl_file, headers, rows)
+    print_report(args.msl_file, headers, rows, detail_pull=args.pull)
 
 
 if __name__ == "__main__":

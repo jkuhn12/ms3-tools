@@ -16,8 +16,8 @@ A minimal Python script that queries the ECU once over serial, validates the CRC
 Usage:
 ```bash
 cd read-from-ms3
-pip3 install -r requirements.txt
-python3 ms3_read.py /dev/tty.usbserial-XXXX
+uv pip install -r requirements.txt
+uv run ms3_read.py /dev/tty.usbserial-XXXX
 ```
 
 This is useful for quick checks in the paddock — verifying the ECU is responding, checking coolant temp before a run, or spot-checking AFR.
@@ -26,12 +26,12 @@ This is useful for quick checks in the paddock — verifying the ECU is respondi
 
 A command-line analyzer for TunerStudio `.msl` datalog files.
 
-- **`analyze_log.py`** — Parses datalogs, finds WOT pull segments, and reports knock retard, spark advance, intake temps, and AFR deviations. Tells you whether your tune is too aggressive or safe without scrolling through thousands of rows.
+- **`main.py`** — Parses datalogs, finds WOT pull segments, and reports knock retard, spark advance, intake temps, and AFR deviations. Tells you whether your tune is too aggressive or safe without scrolling through thousands of rows.
 
 Usage:
 ```bash
 cd ms3-analysis
-python3 analyze_log.py /path/to/datalog.msl
+uv run python main.py /path/to/datalog.msl
 ```
 
 No external dependencies — uses only the Python standard library.

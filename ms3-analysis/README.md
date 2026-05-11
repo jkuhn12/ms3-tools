@@ -13,7 +13,7 @@ A command-line tool for analyzing TunerStudio `.msl` datalog files from MegaSqui
 ## Usage
 
 ```bash
-python3 analyze_log.py /path/to/your/datalog.msl
+uv run main.py /path/to/your/datalog.msl
 ```
 
 ## Example Output
