@@ -1,0 +1,7 @@
+[project]
+name = "ms3-gps-merger"
+version = "0.1.0"
+description = "Merge MegaSquirt MSL datalogs with Track Addict GPS CSV exports"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []

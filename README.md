@@ -31,10 +31,27 @@ A command-line analyzer for TunerStudio `.msl` datalog files.
 Usage:
 ```bash
 cd ms3-analysis
-uv run python main.py /path/to/datalog.msl
+uv run main.py /path/to/datalog.msl
 ```
 
 No external dependencies — uses only the Python standard library.
+
+### `ms3-gps-merger/` — GPS Sync & Merge
+
+A zero-dependency Python script that merges high-rate MS3 SD card datalogs with 20 Hz Track Addict GPS telemetry. Produces a single CSV where every GPS point is paired with the nearest-in-time engine sample — useful for correlating knock events, timing trims, or fuel corrections with track position, speed, and G-load.
+
+- **`main.py`** — Nearest-neighbor time merge of `.msl` and Track Addict `.csv`
+
+Usage:
+```bash
+cd ms3-gps-merger
+uv run main.py \
+    --msl /path/to/onboard_log.msl \
+    --gps /path/to/TrackAddict_export.csv \
+    -o merged_session.csv
+```
+
+See the [ms3-gps-merger README](ms3-gps-merger/README.md) for full options and troubleshooting.
 
 ### Documentation
 
